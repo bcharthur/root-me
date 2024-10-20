@@ -1,0 +1,28 @@
+import socket
+import re
+import base64
+import zlib
+
+HOST = "challenge01.root-me.org"  # address (localhost)
+PORT = 52022  # Port 
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((HOST, PORT))
+    print("Connected to server.")
+    for i in range(4):
+        # Receive data
+        data = s.recv(1024)
+        rot13 = data.decode("utf-8")
+        print(f"Received data :{rot13}")
+
+        encrypted = re.findall(r"'(.*?)'", rot13)
+
+        # base64 decryption
+        decrypted = base64.b64decode(encrypted[0])
+        # zlib decompression
+        decompressed = zlib.decompress(decrypted).decode('utf-8')
+
+        s.sendall((decompressed + '\n').encode("utf-8"))
+        print(f"Result sent to Server: {decompressed}")
+
+    response = s.recv(1024)
+    print(f"Server response: {response.decode("utf-8")}")
