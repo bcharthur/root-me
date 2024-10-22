@@ -1,6 +1,7 @@
 from pwn import *
 import re
 import math
+import time
 
 # Configuration de la connexion
 HOST = 'challenge01.root-me.org'
@@ -30,8 +31,9 @@ def solve_quadratic(a, b, c):
         root1 = round(root1, 3)
         root2 = round(root2, 3)
         # Formater les racines avec trois décimales
-        root1_str = f"{root1:.3f}"
-        root2_str = f"{root2:.3f}"
+        roots = sorted([root1, root2])  # Trier les racines pour la cohérence
+        root1_str = f"{roots[0]:.3f}"
+        root2_str = f"{roots[1]:.3f}"
         return f"x1: {root1_str} ; x2: {root2_str}"
     elif discriminant == 0:
         root = -b / (2*a)
@@ -43,6 +45,8 @@ def solve_quadratic(a, b, c):
 
 # Fonction pour gérer la connexion et résoudre les équations
 def main():
+    start_time = time.time()  # Démarrer le chronomètre
+
     while True:
         try:
             # Initialiser la connexion
@@ -51,53 +55,65 @@ def main():
             while True:
                 # Lire la sortie du serveur
                 server_response = conn.recvline().decode().strip()
-                print(f"Serveur : {server_response}")
+                # On n'affiche pas les messages du serveur pour réduire le bruit
 
                 # Rechercher une équation à résoudre
                 equation_pattern = re.compile(r'Solve this equation please: (.*)')
                 match = equation_pattern.search(server_response)
                 if match:
                     equation = match.group(1)
-                    print(f"Équation reçue : {equation}")
 
                     # Extraire les coefficients
                     coeffs = parse_equation(equation)
                     if coeffs:
                         a, b, c = coeffs
+                        # Afficher l'équation résolue avec les coefficients
+                        print(f"Équation : {equation}")
                         print(f"Coefficients : a={a}, b={b}, c={c}")
 
                         # Résoudre l'équation
                         result = solve_quadratic(a, b, c)
-                        print(f"Résultat : {result}")
 
                         # Envoyer le résultat au serveur
                         conn.sendline(result.encode())
+
+                        # Afficher la réponse envoyée au serveur
                         print(f"Envoyé : {result}")
                     else:
-                        print("Impossible d'analyser l'équation.")
+                        # Impossible d'analyser l'équation
+                        pass
 
                 else:
                     # Vérifier si le flag est présent
-                    flag_pattern = re.compile(r'flag{.*}')
-                    flag_match = flag_pattern.search(server_response)
-                    if flag_match:
-                        flag = flag_match.group(0)
-                        print(f"\nFlag trouvé : {flag}")
-                        conn.close()
-                        return  # Terminer le script après avoir obtenu le flag
+                    if "[+] Good job !" in server_response:
+                        # Extraire le flag de la réponse du serveur
+                        flag_index = server_response.find("flag: ")
+                        if flag_index != -1:
+                            flag = server_response[flag_index + len("flag: "):]
+                            # Afficher la réponse du serveur contenant le flag
+                            print(f"Réponse du serveur contenant le flag : {server_response}")
+                            # Afficher le temps écoulé
+                            elapsed_time = time.time() - start_time
+                            print(f"Temps total écoulé : {elapsed_time:.3f} secondes")
+                            conn.close()
+                            return  # Terminer le script après avoir obtenu le flag
+                        else:
+                            # Si "flag: " n'est pas trouvé, continuer
+                            pass
+
                     elif "[!]" in server_response:
-                        print("Réponse incorrecte, le serveur a fermé la connexion.")
+                        # Réponse incorrecte, le serveur a fermé la connexion
                         conn.close()
-                        break  # Sortir de la boucle intérieure pour se reconnecter
+                        break  # Sortir de la boucle pour se reconnecter
                     else:
                         # Autres messages du serveur
-                        pass  # Vous pouvez afficher ou ignorer les autres messages
+                        pass  # Ignorer ou traiter si nécessaire
 
         except EOFError:
-            print("Fin de la connexion avec le serveur.")
+            # Fin de la connexion avec le serveur
             break
         except Exception as e:
-            print(f"Erreur : {e}")
+            # Gérer les autres exceptions si nécessaire
             break
 
 if __name__ == "__main__":
