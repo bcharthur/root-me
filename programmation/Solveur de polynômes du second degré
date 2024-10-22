@@ -1,0 +1,104 @@
+from pwn import *
+import re
+import math
+
+# Configuration de la connexion
+HOST = 'challenge01.root-me.org'
+PORT = 52018
+
+def parse_equation(equation):
+    # Pattern pour extraire les coefficients et le terme constant
+    coeff_pattern = re.compile(r'([-+]?\d+)\.x²\s*([+-]\s*\d+)\.x¹\s*([+-]\s*\d+)\s*=\s*([-+]?\d+)')
+    match = coeff_pattern.search(equation)
+    if match:
+        a = int(match.group(1))
+        b = int(match.group(2).replace(' ', ''))
+        c = int(match.group(3).replace(' ', ''))
+        rhs = int(match.group(4).replace(' ', ''))
+        # Ajuster c en soustrayant le côté droit de l'équation
+        c = c - rhs
+        return a, b, c
+    else:
+        return None
+
+def solve_quadratic(a, b, c):
+    discriminant = b**2 - 4*a*c
+    if discriminant > 0:
+        sqrt_disc = math.sqrt(discriminant)
+        root1 = (-b + sqrt_disc) / (2*a)
+        root2 = (-b - sqrt_disc) / (2*a)
+        root1 = round(root1, 3)
+        root2 = round(root2, 3)
+        # Formater les racines avec trois décimales
+        root1_str = f"{root1:.3f}"
+        root2_str = f"{root2:.3f}"
+        return f"x1: {root1_str} ; x2: {root2_str}"
+    elif discriminant == 0:
+        root = -b / (2*a)
+        root = round(root, 3)
+        root_str = f"{root:.3f}"
+        return f"x: {root_str}"
+    else:
+        return "Not possible"
+
+# Fonction pour gérer la connexion et résoudre les équations
+def main():
+    while True:
+        try:
+            # Initialiser la connexion
+            conn = remote(HOST, PORT)
+
+            while True:
+                # Lire la sortie du serveur
+                server_response = conn.recvline().decode().strip()
+                print(f"Serveur : {server_response}")
+
+                # Rechercher une équation à résoudre
+                equation_pattern = re.compile(r'Solve this equation please: (.*)')
+                match = equation_pattern.search(server_response)
+                if match:
+                    equation = match.group(1)
+                    print(f"Équation reçue : {equation}")
+
+                    # Extraire les coefficients
+                    coeffs = parse_equation(equation)
+                    if coeffs:
+                        a, b, c = coeffs
+                        print(f"Coefficients : a={a}, b={b}, c={c}")
+
+                        # Résoudre l'équation
+                        result = solve_quadratic(a, b, c)
+                        print(f"Résultat : {result}")
+
+                        # Envoyer le résultat au serveur
+                        conn.sendline(result.encode())
+                        print(f"Envoyé : {result}")
+                    else:
+                        print("Impossible d'analyser l'équation.")
+
+                else:
+                    # Vérifier si le flag est présent
+                    flag_pattern = re.compile(r'flag{.*}')
+                    flag_match = flag_pattern.search(server_response)
+                    if flag_match:
+                        flag = flag_match.group(0)
+                        print(f"\nFlag trouvé : {flag}")
+                        conn.close()
+                        return  # Terminer le script après avoir obtenu le flag
+                    elif "[!]" in server_response:
+                        print("Réponse incorrecte, le serveur a fermé la connexion.")
+                        conn.close()
+                        break  # Sortir de la boucle intérieure pour se reconnecter
+                    else:
+                        # Autres messages du serveur
+                        pass  # Vous pouvez afficher ou ignorer les autres messages
+
+        except EOFError:
+            print("Fin de la connexion avec le serveur.")
+            break
+        except Exception as e:
+            print(f"Erreur : {e}")
+            break
+
+if __name__ == "__main__":
+    main()
